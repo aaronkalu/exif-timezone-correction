@@ -54,7 +54,7 @@ python timezone-correction.py /path/to/images/ 02:30
 - JPEG (.jpg, .jpeg)
 - TIFF (.tiff)
 - HEIC (.heic)
-- RAW formats (e.g., .cr2, .cr3, .nef, .arw, .raf, .rw2, .orf)
+- RAW formats (e.g., .raw, .cr2, .cr3, .nef, .arw, .raf, .rw2, .orf)
 
 **Important Notes**
 - Backup: It is recommended to keep a backup of your images before running the script, especially if you are unsure about the changes.
