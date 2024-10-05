@@ -1,6 +1,6 @@
 # EXIF Timestamp Adjuster
 
-This Python script allows you to adjust the EXIF timestamps of image files, including JPEGs and RAW formats. You can modify the timestamps based on a specified time offset and timezone adjustment.
+This Python script allows you to adjust the EXIF timestamps of image files, including JPEGs and RAW formats. You can modify the timestamps based on a specified timezone adjustment.
 
 ## Requirements
 
