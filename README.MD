@@ -38,12 +38,12 @@ python timezone-correction.py /path/to/images/ HH:MM [--negative]
 - --negative: Specify this flag if the new timezone is negative (default is positive).
 
 Example:
-To adjust the timestamps of images in the directory /path/to/images/ to a new timezone offset of UTC-06:00, you would run:
+- To adjust the timestamps of images in the directory /path/to/images/ to a new timezone offset of UTC-06:00, you would run:
 
 ```bash
 python timezone-correction.py /path/to/images/ 06:00 --negative
 ```
-To specify a positive timezone offset of UTC+02:30, you would run:
+- To specify a positive timezone offset of UTC+02:30, you would run:
     
 ```bash
 python timezone-correction.py /path/to/images/ 02:30
