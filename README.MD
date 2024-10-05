@@ -26,24 +26,30 @@ This Python script allows you to adjust the EXIF timestamps of image files, incl
 
 ## Usage
 
-To use the script, navigate to the directory containing `time_adjuster.py` and run the following command in your terminal:
-  ```bash
-  python time_adjuster.py /path/to/images/ -t <time_offset> -tz <timezone_offset>
-  ```
+To use the script, navigate to the directory containing `timezone-correction.py` and run the following command in your terminal:
+```bash
+python timezone-correction.py /path/to/images/ HH:MM [--negative]
+```
 
 **Parameters**:
-  path: The path to the directory containing the images you want to adjust.
-  -t or --time: Time offset in hours (e.g., 1 for +1 hour).
-  -tz or --timezone: New Timezone in hours (e.g., -3 for UTC-3).
+
+- path: The path to the directory containing the images you want to adjust.
+- timezone: New timezone in the format HH:MM (e.g., 02:00 for UTC+02:00).
+- --negative: Specify this flag if the new timezone is negative (default is positive).
 
 Example:
-To adjust the timestamps of images in the directory /path/to/images/, with a time adjustment of 2 hours and a new timezone offset of -7, you would run:
-  ```bash
-    python main.py /path/to/images/ -t 2 -tz -7
-    ```
+To adjust the timestamps of images in the directory /path/to/images/ to a new timezone offset of -06:00, you would run:
 
-**Supported File Formats**
-This script supports various image file formats, including:
+```bash
+python timezone-correction.py /path/to/images/ 06:00 --negative
+```
+To specify a positive timezone offset of +02:30, you would run:
+    
+```bash
+python timezone-correction.py /path/to/images/ 02:30
+```
+
+**Supported File Formats This script supports various image file formats, including:**
 
 - JPEG (.jpg, .jpeg)
 - TIFF (.tiff)
