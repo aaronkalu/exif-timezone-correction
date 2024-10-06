@@ -1,4 +1,4 @@
-# EXIF Timestamp Adjuster
+# Adjust EXIF Timestamps with Timezone Correction
 
 This Python script allows you to adjust the EXIF timestamps of image files, including JPEGs and RAW formats. You can modify the timestamps based on a specified timezone adjustment.
 
@@ -33,11 +33,11 @@ python timezone-correction.py /path/to/images/ HH:MM [--negative]
 
 **Parameters**:
 
-- path: The path to the directory containing the images you want to adjust.
-- timezone: New timezone in the format HH:MM (e.g., 02:00 for UTC+02:00).
-- --negative: Specify this flag if the new timezone is negative (default is positive).
+- `path`: The path to the directory containing the images you want to adjust.
+- `timezone`: New timezone in the format HH:MM (e.g., 02:00 for UTC+02:00).
+- `--negative`: Specify this flag if the new timezone is negative (default is positive).
 
-Example:
+**Example:**
 - To adjust the timestamps of images in the directory /path/to/images/ to a new timezone offset of UTC-06:00, you would run:
 
 ```bash
@@ -56,6 +56,6 @@ python timezone-correction.py /path/to/images/ 02:30
 - HEIC (.heic)
 - RAW formats (e.g., .raw, .cr2, .cr3, .nef, .arw, .raf, .rw2, .orf)
 
-**Important Notes**
-- Backup: It is recommended to keep a backup of your images before running the script, especially if you are unsure about the changes.
-- Quality: Modifying the EXIF data does not affect the image quality, as it only updates the metadata.
+## Important Notes
+- **Backup:** It is recommended to keep a backup of your images before running the script, especially if you are unsure about the changes.
+- **Quality:** Modifying the EXIF data does not affect the image quality, as it only updates the metadata.
