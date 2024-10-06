@@ -58,4 +58,4 @@ python timezone-correction.py /path/to/images/ 02:30
 
 ## Important Notes
 - **Backup:** It is recommended to keep a backup of your images before running the script, especially if you are unsure about the changes.
-- **Quality:** Modifying the EXIF data does not affect the image quality, as it only updates the metadata.
+- **EXIF Quality:** Modifying the EXIF data does not affect the image quality, as it only updates the metadata.
