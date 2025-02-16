@@ -36,6 +36,7 @@ python timezone-correction.py /path/to/images/ HH:MM [--negative]
 - `path`: The path to the directory containing the images you want to adjust.
 - `timezone`: New timezone in the format HH:MM (e.g., 02:00 for UTC+02:00).
 - `--negative`: Specify this flag if the new timezone is negative (default is positive).
+- `--recursive`: Specify this flag to process images in subdirectories recursively.
 
 **Example:**
 - To adjust the timestamps of images in the directory /path/to/images/ to a new timezone offset of UTC-06:00, you would run:
