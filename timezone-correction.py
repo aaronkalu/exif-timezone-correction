@@ -10,9 +10,7 @@ def check_exiftool_installed():
     try:
         subprocess.run(["exiftool", "-ver"], check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         return True
-    except subprocess.CalledProcessError:
-        return False
-    except FileNotFoundError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return False
 
 
@@ -46,15 +44,11 @@ def adjust_time(image_path, new_timezone_offset_hours, new_timezone_offset_minut
         print(f"Unexpected EXIF data format for {image_path}: {result.stdout}")
         return
 
-    date_original = exif_data[0]  # "YYYY:MM:DD"
-    time_original = exif_data[1]  # "HH:MM:SS"
-    subsec_time_original = exif_data[2]  # Subsecond part
-    current_offset_str = exif_data[3] if len(exif_data) > 3 else None  # Current offset (e.g., "+10:00")
+    date_original, time_original, subsec_time_original = exif_data[:3]
+    current_offset_str = exif_data[3] if len(exif_data) > 3 else None
 
     datetime_original_str = f"{date_original} {time_original}"
-    dt_format = "%Y:%m:%d %H:%M:%S"
-    dt_obj = datetime.strptime(datetime_original_str, dt_format)
-
+    dt_obj = datetime.strptime(datetime_original_str, "%Y:%m:%d %H:%M:%S")
     current_offset_hours, current_offset_minutes = get_offset_in_hours_and_minutes(current_offset_str)
 
     if (current_offset_hours == new_timezone_offset_hours and
@@ -69,7 +63,7 @@ def adjust_time(image_path, new_timezone_offset_hours, new_timezone_offset_minut
 
     new_offset_str = f"{new_timezone_offset_hours:+03d}:{new_timezone_offset_minutes:02d}"
 
-    new_datetime_str = adjusted_time.strftime(f"%Y:%m:%d %H:%M:%S")
+    new_datetime_str = adjusted_time.strftime("%Y:%m:%d %H:%M:%S")
     new_subsec_datetime_str = f"{new_datetime_str}.{subsec_time_original}{new_offset_str}"
 
     cmd = [
@@ -95,21 +89,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Adjust image EXIF timestamps based on a new timezone.")
     parser.add_argument('path', help='Path to the folder containing images.')
     parser.add_argument('timezone', help='New timezone in format "HH:MM" (e.g., 02:00 for UTC+2).')
-    parser.add_argument('--negative', action='store_true', help='Specify this flag if the new timezone is negative (default is positive).')
+    parser.add_argument('--negative', action='store_true',
+                        help='Specify if the new timezone is negative (default is positive).')
+    parser.add_argument('--recursive', action='store_true', help='Process images in subdirectories recursively.')
     args = parser.parse_args()
 
-    if args.negative:
-        timezone_offset_hours, timezone_offset_minutes = get_offset_in_hours_and_minutes(f"-{args.timezone}")
-    else:
-        timezone_offset_hours, timezone_offset_minutes = get_offset_in_hours_and_minutes(f"+{args.timezone}")
+    timezone_offset_hours, timezone_offset_minutes = get_offset_in_hours_and_minutes(
+        f"{'-' if args.negative else '+'}{args.timezone}")
 
     if not validate_timezone_format(f"{'+' if not args.negative else '-'}{args.timezone}"):
-        print(f"Invalid timezone format: {args.timezone}. Please provide a valid timezone in the format '+/-HH:MM'.")
+        print(f"Invalid timezone format: {args.timezone}. Please use '+/-HH:MM'.")
         sys.exit(1)
 
-    for filename in os.listdir(args.path):
-        if filename.lower().endswith(('.jpg', '.jpeg', '.tiff', '.heic', '.raw', '.arw', '.raf', '.nef', '.orf', '.rw2', '.cr2', '.cr3')):
-            file_path = os.path.join(args.path, filename)
-            adjust_time(file_path, timezone_offset_hours, timezone_offset_minutes)
+    image_extensions = (
+    '.jpg', '.jpeg', '.tiff', '.heic', '.raw', '.arw', '.raf', '.nef', '.orf', '.rw2', '.cr2', '.cr3')
 
-    print("Successfully adjusted EXIF timestamps for all images in the specified folder.")
+    for root, _, files in os.walk(args.path) if args.recursive else [(args.path, [], os.listdir(args.path))]:
+        for filename in files:
+            if filename.lower().endswith(image_extensions):
+                file_path = os.path.join(root, filename)
+                adjust_time(file_path, timezone_offset_hours, timezone_offset_minutes)
+
+    print("Successfully adjusted EXIF timestamps for all images.")
