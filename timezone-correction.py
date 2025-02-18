@@ -4,7 +4,8 @@ from datetime import datetime, timedelta
 import argparse
 import sys
 import re
-
+from concurrent.futures import ThreadPoolExecutor, as_completed
+import tqdm
 
 def check_exiftool_installed():
     try:
@@ -15,12 +16,10 @@ def check_exiftool_installed():
 
 
 def validate_timezone_format(timezone_str):
-    # Ensure the timezone string follows the format "+/-HH:MM"
     return bool(re.match(r'^[+-](\d{2}):(\d{2})$', timezone_str))
 
 
 def get_offset_in_hours_and_minutes(offset_str):
-    # Parse the offset string, e.g., "+05:30" or "-03:45" and convert to hours and minutes
     match = re.match(r'([+-]?)(\d{2}):(\d{2})', offset_str)
     if match:
         sign = -1 if match.group(1) == '-' else 1
@@ -35,14 +34,11 @@ def adjust_time(image_path, new_timezone_offset_hours, new_timezone_offset_minut
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
     if result.returncode != 0:
-        print(f"Error reading EXIF data for {image_path}: {result.stderr}")
-        return
+        return f"Error reading EXIF data for {image_path}: {result.stderr}"
 
     exif_data = result.stdout.strip().split()
-
     if len(exif_data) < 3:
-        print(f"Unexpected EXIF data format for {image_path}: {result.stdout}")
-        return
+        return f"Unexpected EXIF data format for {image_path}: {result.stdout}"
 
     date_original, time_original, subsec_time_original = exif_data[:3]
     current_offset_str = exif_data[3] if len(exif_data) > 3 else None
@@ -53,16 +49,13 @@ def adjust_time(image_path, new_timezone_offset_hours, new_timezone_offset_minut
 
     if (current_offset_hours == new_timezone_offset_hours and
             current_offset_minutes == new_timezone_offset_minutes):
-        print(f"Skipping {image_path}: Timezone is already set to UTC{new_timezone_offset_hours:+03d}:{new_timezone_offset_minutes:02d}")
-        return
+        return f"Skipping {image_path}: Timezone already set."
 
     time_difference_hours = new_timezone_offset_hours - current_offset_hours
     time_difference_minutes = new_timezone_offset_minutes - current_offset_minutes
-
     adjusted_time = dt_obj + timedelta(hours=time_difference_hours, minutes=time_difference_minutes)
 
     new_offset_str = f"{new_timezone_offset_hours:+03d}:{new_timezone_offset_minutes:02d}"
-
     new_datetime_str = adjusted_time.strftime("%Y:%m:%d %H:%M:%S")
     new_subsec_datetime_str = f"{new_datetime_str}.{subsec_time_original}{new_offset_str}"
 
@@ -73,12 +66,21 @@ def adjust_time(image_path, new_timezone_offset_hours, new_timezone_offset_minut
         f"-OffsetTimeOriginal={new_offset_str}",
         image_path
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
 
-    if result.returncode != 0:
-        print(f"Error writing EXIF data for {image_path}: {result.stderr}")
-    else:
-        print(f"Successfully updated EXIF data for {image_path}")
+    return f"Updated {image_path}"
+
+
+def process_images(image_paths, timezone_offset_hours, timezone_offset_minutes, max_workers=1):
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(adjust_time, img, timezone_offset_hours, timezone_offset_minutes): img for img in
+                   image_paths}
+
+        with tqdm.tqdm(total=len(image_paths), desc="Processing Images", unit="img") as pbar:
+            for future in as_completed(futures):
+                result = future.result()
+                print(result)
+                pbar.update(1)
 
 
 if __name__ == "__main__":
@@ -92,6 +94,8 @@ if __name__ == "__main__":
     parser.add_argument('--negative', action='store_true',
                         help='Specify if the new timezone is negative (default is positive).')
     parser.add_argument('--recursive', action='store_true', help='Process images in subdirectories recursively.')
+    parser.add_argument('--workers', type=int, default=1, help='Number of threads to run in parallel.')
+
     args = parser.parse_args()
 
     timezone_offset_hours, timezone_offset_minutes = get_offset_in_hours_and_minutes(
@@ -104,10 +108,14 @@ if __name__ == "__main__":
     image_extensions = (
     '.jpg', '.jpeg', '.tiff', '.heic', '.raw', '.arw', '.raf', '.nef', '.orf', '.rw2', '.cr2', '.cr3')
 
+    image_paths = []
     for root, _, files in os.walk(args.path) if args.recursive else [(args.path, [], os.listdir(args.path))]:
         for filename in files:
             if filename.lower().endswith(image_extensions):
-                file_path = os.path.join(root, filename)
-                adjust_time(file_path, timezone_offset_hours, timezone_offset_minutes)
+                image_paths.append(os.path.join(root, filename))
 
-    print("Successfully adjusted EXIF timestamps for all images.")
+    if image_paths:
+        process_images(image_paths, timezone_offset_hours, timezone_offset_minutes, args.workers)
+        print(f"Successfully adjusted EXIF timestamps for {len(image_paths)} images.")
+    else:
+        print("No images found.")
