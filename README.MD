@@ -28,27 +28,27 @@ This Python script allows you to adjust the EXIF timestamps of image files, incl
 
 To use the script, navigate to the directory containing `timezone-correction.py` and run the following command in your terminal:
 ```bash
-python timezone-correction.py /path/to/images/ HH:MM [--negative]
+python timezone-correction.py --dir /path/to/images/ --timezone HH:MM [--negative] [--recursive] [--workers num]
 ```
 
 **Parameters**:
 
-- `path`: The path to the directory containing the images you want to adjust.
-- `timezone`: New timezone in the format HH:MM (e.g., 02:00 for UTC+02:00).
-- `--negative`: Specify this flag if the new timezone is negative (default is positive).
-- `--recursive`: Specify this flag to process images in subdirectories recursively.
-- `--workers`: Specify the number of parallel workers to speed up processing (default is 1). 
+- `--dir` or `-d`: Directory containing images.
+- `--timezone` or `-t`: New timezone offset in HH:MM format.
+- `--negative` or `-n`: Specify this flag for negative timezone offsets (e.g., UTC-06:00).
+- `--recursive` or `-r`: Process images in subdirectories recursively.
+- `--workers` or `-w`: Number of parallel workers/threads to speed up processing. Default is 1.
 
 **Example:**
 - To adjust the timestamps of images in the directory /path/to/images/ to a new timezone offset of UTC-06:00, you would run:
 
 ```bash
-python timezone-correction.py /path/to/images/ 06:00 --negative
+python timezone-correction.py --dir /path/to/images/ --timezone 06:00 --negative
 ```
 - To specify a positive timezone offset of UTC+02:30, you would run:
     
 ```bash
-python timezone-correction.py /path/to/images/ 02:30
+python timezone-correction.py --dir /path/to/images/ --timezone 02:30
 ```
 
 **Supported File Formats This script supports various image file formats, including:**

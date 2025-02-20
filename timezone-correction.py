@@ -89,12 +89,13 @@ if __name__ == "__main__":
         sys.exit(1)
 
     parser = argparse.ArgumentParser(description="Adjust image EXIF timestamps based on a new timezone.")
-    parser.add_argument('path', help='Path to the folder containing images.')
-    parser.add_argument('timezone', help='New timezone in format "HH:MM" (e.g., 02:00 for UTC+2).')
-    parser.add_argument('--negative', action='store_true',
+    parser.add_argument('-d', '--dir', required=True, help='Path to the folder containing images.')
+    parser.add_argument('-t', '--timezone', required=True,
+                        help='New timezone in format "HH:MM" (e.g., 02:00 for UTC+2).')
+    parser.add_argument('-n', '--negative', action='store_true',
                         help='Specify if the new timezone is negative (default is positive).')
-    parser.add_argument('--recursive', action='store_true', help='Process images in subdirectories recursively.')
-    parser.add_argument('--workers', type=int, default=1, help='Number of threads to run in parallel.')
+    parser.add_argument('-r', '--recursive', action='store_true', help='Process images in subdirectories recursively.')
+    parser.add_argument('-w', '--workers', type=int, default=1, help='Number of threads to run in parallel.')
 
     args = parser.parse_args()
 
@@ -109,7 +110,7 @@ if __name__ == "__main__":
     '.jpg', '.jpeg', '.tiff', '.heic', '.raw', '.arw', '.raf', '.nef', '.orf', '.rw2', '.cr2', '.cr3')
 
     image_paths = []
-    for root, _, files in os.walk(args.path) if args.recursive else [(args.path, [], os.listdir(args.path))]:
+    for root, _, files in os.walk(args.dir) if args.recursive else [(args.dir, [], os.listdir(args.dir))]:
         for filename in files:
             if filename.lower().endswith(image_extensions):
                 image_paths.append(os.path.join(root, filename))
