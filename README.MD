@@ -53,6 +53,8 @@ python timezone-correction.py --dir /path/to/images/ --timezone 02:30
 
 **Supported File Formats**
 
+This script currently supports the following image file formats:
+
 - JPEG (.jpg, .jpeg)
 - TIFF (.tiff)
 - HEIC (.heic)
