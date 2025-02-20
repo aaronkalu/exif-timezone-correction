@@ -51,7 +51,7 @@ python timezone-correction.py --dir /path/to/images/ --timezone 06:00 --negative
 python timezone-correction.py --dir /path/to/images/ --timezone 02:30
 ```
 
-**Supported File Formats This script supports various image file formats, including:**
+**Supported File Formats**
 
 - JPEG (.jpg, .jpeg)
 - TIFF (.tiff)
