@@ -4,11 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "exif-timezone-correction"
-version = "2.0.0"
+dynamic = ["version"]
 description = "Shift image EXIF capture timestamps into a different timezone."
 readme = "README.MD"
 requires-python = ">=3.9"
-dependencies = ["tqdm>=4"]
+# Windows ships no IANA timezone database; zoneinfo falls back to the tzdata package.
+dependencies = ["tqdm>=4", "tzdata; sys_platform == 'win32'"]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
@@ -18,6 +19,9 @@ exif-timezone-correction = "exif_timezone_correction.cli:main"
 
 [tool.setuptools]
 packages = ["exif_timezone_correction"]
+
+[tool.setuptools.dynamic]
+version = {attr = "exif_timezone_correction.__version__"}
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
