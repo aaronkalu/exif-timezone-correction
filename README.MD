@@ -61,20 +61,21 @@ python timezone-correction.py --dir /path/to/images/ --timezone 02:30
 
 **Supported File Formats**
 
-This script currently supports the following image file formats:
+The script processes files with these extensions (case-insensitive):
 
 - JPEG (.jpg, .jpeg)
 - TIFF (.tif, .tiff)
 - HEIC (.heic)
-- RAW formats (e.g., .raw, .cr2, .cr3, .nef, .arw, .raf, .rw2, .orf)
+- RAW formats (.raw, .cr2, .cr3, .nef, .arw, .raf, .rw2, .orf)
 
 ## How It Works
 
-For each image the script reads `DateTimeOriginal` and `OffsetTimeOriginal` and rewrites both so they describe the
+For each image the script reads the EXIF tags `DateTimeOriginal` and `OffsetTimeOriginal` and rewrites both so they describe the
 same moment in the new timezone. For example, `10:00 +02:00` becomes `01:30 -06:30`. Sub-second values are kept.
 
 - Images that already have the target offset are skipped, so running the script twice is safe.
-- Images without a `DateTimeOriginal` are skipped.
+- Images without an EXIF `DateTimeOriginal` are skipped, including images that store it only in XMP.
+- Other date tags such as `CreateDate` and `ModifyDate` are not changed.
 - If an image has no `OffsetTimeOriginal`, its time is assumed to be UTC.
 - macOS `._*` metadata files are ignored.
 
@@ -91,5 +92,5 @@ pytest
 The end-to-end tests run only when `exiftool` is installed.
 
 ## Important Notes
-- **Backup:** It is recommended to keep a backup of your images before running the script, especially if you are unsure about the changes.
+- **Backup:** Files are modified in place and ExifTool's `_original` backup copies are not kept. Back up your images before running the script.
 - **EXIF Quality:** Modifying the EXIF data does not affect the image quality, as it only updates the metadata.
