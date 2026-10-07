@@ -1,4 +1,4 @@
-from exif_timezone_correction.files import find_images
+from exif_timezone_correction.files import find_images, find_sidecars
 
 
 def test_finds_images_case_insensitively(tmp_path):
@@ -44,3 +44,21 @@ def test_recursive_search(tmp_path):
 
     assert [p.name for p in find_images(tmp_path)] == ["top.jpg"]
     assert [p.name for p in find_images(tmp_path, recursive=True)] == ["nested.jpg", "top.jpg"]
+
+
+def test_finds_newer_formats(tmp_path):
+    for name in ["a.dng", "b.HIF", "c.webp", "d.avif"]:
+        (tmp_path / name).touch()
+
+    assert len(find_images(tmp_path)) == 4
+
+
+def test_sidecars_for_raw_and_full_name_conventions(tmp_path):
+    for name in ["IMG_1.CR2", "IMG_1.XMP", "IMG_1.JPG", "IMG_2.jpg", "IMG_2.jpg.xmp", "IMG_3.jpg", "IMG_3.xmp", "._IMG_2.jpg.xmp"]:
+        (tmp_path / name).touch()
+    images = find_images(tmp_path)
+
+    sidecars = {image.name: [s.name for s in found] for image, found in find_sidecars(images).items()}
+
+    # IMG_3.xmp belongs to no RAW file, and the RAW file of a RAW+JPEG pair claims IMG_1.XMP alone.
+    assert sidecars == {"IMG_1.CR2": ["IMG_1.XMP"], "IMG_2.jpg": ["IMG_2.jpg.xmp"]}
