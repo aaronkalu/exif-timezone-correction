@@ -44,9 +44,6 @@ def test_in_timezone_crosses_date_boundary():
     assert corrected.local_time == datetime(2025, 1, 1, 5, 15)
 
 
-def test_missing_offset_is_treated_as_utc():
-    original = CaptureTime(datetime(2024, 5, 1, 10, 0), offset=None)
-
-    corrected = original.in_timezone(UtcOffset.parse("+02:00"))
-
-    assert corrected.local_time == datetime(2024, 5, 1, 12, 0)
+def test_converting_without_an_offset_is_refused():
+    with pytest.raises(ValueError):
+        CaptureTime(datetime(2024, 5, 1, 10, 0), offset=None).in_timezone(UtcOffset.parse("+02:00"))

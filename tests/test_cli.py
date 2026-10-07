@@ -1,3 +1,4 @@
+import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -5,10 +6,12 @@ from pathlib import Path
 import pytest
 
 from exif_timezone_correction.cli import main, resolve_target_offset
-from exif_timezone_correction.domain import UtcOffset
+from exif_timezone_correction.domain import MetadataError, UtcOffset
+from exif_timezone_correction.exiftool import ExifTool
 
 BLANK_JPEG = Path(__file__).parent / "data" / "blank.jpg"
 requires_exiftool = pytest.mark.skipif(shutil.which("exiftool") is None, reason="exiftool not installed")
+running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0
 
 
 @pytest.mark.parametrize(
@@ -24,7 +27,10 @@ def test_signed_timezone_conflicts_with_negative_flag():
         resolve_target_offset("+06:00", negative=True)
 
 
-@pytest.mark.parametrize("argv", [["-t", "99:00"], ["-t", "02:00", "-w", "0"], ["-t", "02:00", "-d", "/does/not/exist"]])
+@pytest.mark.parametrize(
+    "argv",
+    [["-t", "99:00"], ["-t", "02:00", "-w", "0"], ["-t", "02:00", "-s", "25:00"], ["-t", "02:00", "-d", "/does/not/exist"]],
+)
 def test_invalid_arguments_exit_with_usage_error(argv, tmp_path):
     if "-d" not in argv:
         argv = ["-d", str(tmp_path), *argv]
@@ -42,9 +48,9 @@ def _make_image(directory, name, **tags):
     return path
 
 
-def _read_tags(path):
+def _read_tags(path, tags=("EXIF:DateTimeOriginal", "SubSecTimeOriginal", "OffsetTimeOriginal")):
     output = subprocess.run(
-        ["exiftool", "-T", "-DateTimeOriginal", "-SubSecTimeOriginal", "-OffsetTimeOriginal", str(path)],
+        ["exiftool", "-T", *(f"-{tag}" for tag in tags), str(path)],
         check=True, capture_output=True, text=True,
     ).stdout
     return tuple(output.rstrip("\n").split("\t"))
@@ -63,8 +69,29 @@ def test_end_to_end(tmp_path):
 
     assert exit_code == 0
     assert _read_tags(with_subsec) == ("2024:05:01 01:30:00", "045", "-06:30")
-    assert _read_tags(no_offset) == ("2024:05:01 03:30:00", "-", "-06:30")
+    assert _read_tags(no_offset) == ("2024:05:01 10:00:00", "-", "-")
     assert _read_tags(no_date) == ("-", "-", "-")
+
+
+@requires_exiftool
+def test_source_timezone_applies_to_images_without_offset(tmp_path):
+    no_offset = _make_image(tmp_path, "a.jpg", DateTimeOriginal="2024:05:01 10:00:00")
+
+    exit_code = main(["-d", str(tmp_path), "-t", "06:30", "-n", "--source-timezone=+02:00"])
+
+    assert exit_code == 0
+    assert _read_tags(no_offset) == ("2024:05:01 01:30:00", "-", "-06:30")
+
+
+@requires_exiftool
+def test_capture_time_recorded_only_in_xmp(tmp_path):
+    image = _make_image(tmp_path, "a.jpg", **{"XMP:DateTimeOriginal": "2024:05:01 10:00:00.045+02:00"})
+
+    exit_code = main(["-d", str(tmp_path), "-t", "06:30", "-n"])
+
+    assert exit_code == 0
+    tags = ("EXIF:DateTimeOriginal", "OffsetTimeOriginal", "XMP:DateTimeOriginal")
+    assert _read_tags(image, tags) == ("2024:05:01 01:30:00", "-06:30", "2024:05:01 01:30:00.045-06:30")
 
 
 @requires_exiftool
@@ -78,6 +105,7 @@ def test_running_twice_is_idempotent(tmp_path):
 
 
 @requires_exiftool
+@pytest.mark.skipif(running_as_root, reason="root can write to read-only folders")
 def test_write_failure_is_reported(tmp_path):
     _make_image(tmp_path, "a.jpg", DateTimeOriginal="2024:05:01 10:00:00", OffsetTimeOriginal="+02:00")
     tmp_path.chmod(0o555)  # exiftool cannot create its temporary file
@@ -87,3 +115,13 @@ def test_write_failure_is_reported(tmp_path):
         tmp_path.chmod(0o755)
 
     assert exit_code == 1
+
+
+@requires_exiftool
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs named pipes")
+def test_hung_exiftool_times_out(tmp_path):
+    fifo = tmp_path / "stalled.jpg"
+    os.mkfifo(fifo)  # exiftool blocks opening a pipe nobody writes to, like a stalled network drive
+
+    with ExifTool(timeout=1) as store, pytest.raises(MetadataError, match="timed out"):
+        store.read_capture_time(fifo)

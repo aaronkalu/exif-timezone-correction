@@ -53,14 +53,15 @@ UTC = UtcOffset(0)
 
 @dataclass(frozen=True)
 class CaptureTime:
-    """An offset of None means the camera recorded none; it is treated as UTC."""
+    """An offset of None means the camera recorded none."""
 
     local_time: datetime
     offset: UtcOffset | None = None
 
     def in_timezone(self, target: UtcOffset) -> CaptureTime:
-        source = UTC if self.offset is None else self.offset
-        utc_time = self.local_time - source.as_timedelta()
+        if self.offset is None:
+            raise ValueError("Cannot convert a capture time without a UTC offset.")
+        utc_time = self.local_time - self.offset.as_timedelta()
         return CaptureTime(local_time=utc_time + target.as_timedelta(), offset=target)
 
     def __str__(self) -> str:

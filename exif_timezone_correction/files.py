@@ -16,15 +16,27 @@ _APPLE_DOUBLE_PREFIX = "._"
 
 
 def find_images(directory: Path, recursive: bool = False) -> list[Path]:
-    return sorted(path for path in _iter_files(directory, recursive) if _is_image(path))
+    # Symlinks can reach one file through several paths; processing it twice in parallel would race.
+    images: dict[Path, Path] = {}
+    for path in sorted(_iter_files(directory, recursive)):
+        if _is_image(path):
+            images.setdefault(path.resolve(), path)
+    return list(images.values())
 
 
 def _iter_files(directory: Path, recursive: bool) -> Iterator[Path]:
     if not recursive:
         yield from (path for path in directory.iterdir() if path.is_file())
         return
-    for root, _, filenames in os.walk(directory):
-        yield from (Path(root, name) for name in filenames)
+
+    visited: set[str] = set()
+    for root, dirnames, filenames in os.walk(directory, followlinks=True):
+        real_root = os.path.realpath(root)
+        if real_root in visited:  # a symlink loop or a second link to the same folder
+            dirnames.clear()
+            continue
+        visited.add(real_root)
+        yield from (path for path in (Path(root, name) for name in filenames) if path.is_file())
 
 
 def _is_image(path: Path) -> bool:

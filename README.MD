@@ -44,7 +44,8 @@ python timezone-correction.py --dir /path/to/images/ --timezone HH:MM [--negativ
 - `--dir` or `-d`: Directory containing images.
 - `--timezone` or `-t`: New timezone offset in HH:MM format, between -12:00 and +14:00. A signed value is also accepted, written with `=` so it is not mistaken for a flag: `--timezone=-06:00`.
 - `--negative` or `-n`: Specify this flag for negative timezone offsets (e.g., UTC-06:00). Cannot be combined with a signed `--timezone`.
-- `--recursive` or `-r`: Process images in subdirectories recursively.
+- `--source-timezone` or `-s`: Timezone the camera clock was set to, in the same format, used only for images that recorded no `OffsetTimeOriginal`. Without it those images are skipped.
+- `--recursive` or `-r`: Process images in subdirectories recursively. Symlinked folders are followed.
 - `--workers` or `-w`: Number of parallel workers/threads to speed up processing. Default is 1.
 
 **Example:**
@@ -71,16 +72,22 @@ The script processes files with these extensions (case-insensitive):
 ## How It Works
 
 For each image the script reads the EXIF tags `DateTimeOriginal` and `OffsetTimeOriginal` and rewrites both so they describe the
-same moment in the new timezone. For example, `10:00 +02:00` becomes `01:30 -06:30`. Sub-second values are kept.
+same moment in the new timezone. For example, `10:00 +02:00` becomes `01:30 -06:30`. Sub-second values are kept. If the image
+also has an XMP `DateTimeOriginal`, it is updated to match.
 
 - Images that already have the target offset are skipped, so running the script twice is safe.
-- Images without an EXIF `DateTimeOriginal` are skipped, including images that store it only in XMP.
+- Images that store the capture time only in XMP are read from XMP and get the EXIF tags added.
+- Images without any `DateTimeOriginal` are skipped.
 - Other date tags such as `CreateDate` and `ModifyDate` are not changed.
-- If an image has no `OffsetTimeOriginal`, its time is assumed to be UTC.
+- If an image has no `OffsetTimeOriginal` (common on older cameras, which record clock time), the offset from its XMP
+  date is used when present. Otherwise the image is skipped unless `--source-timezone` is given.
+- A file reachable through several symlinks is processed once.
+- ExifTool is kept running per worker instead of being started for every image. A call that takes longer than
+  two minutes (for example on a stalled network drive) fails that image.
 - macOS `._*` metadata files are ignored.
 
-At the end the script prints how many images were updated, skipped and failed. It exits with code 1 if any image
-failed.
+At the end the script prints how many images were updated, skipped and failed. Pressing Ctrl+C stops after the images currently being written. It exits with code 1 if any image
+failed. Pressing Ctrl+C stops after the images currently being written.
 
 ## Development
 

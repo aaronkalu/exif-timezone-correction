@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections import Counter
+from contextlib import closing
 from pathlib import Path
 from typing import Sequence
 
@@ -20,6 +21,7 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     try:
         target = resolve_target_offset(args.timezone, args.negative)
+        source = None if args.source_timezone is None else UtcOffset.parse(args.source_timezone)
     except ValueError as error:
         parser.error(str(error))
     if not args.dir.is_dir():
@@ -35,8 +37,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     outcomes: Counter[Outcome] = Counter()
-    results = correct_all(images, target, exiftool.ExifTool(), args.workers)
-    with tqdm(total=len(images), desc="Processing Images", unit="img") as progress:
+    # closing() shuts the worker pool down on Ctrl+C, so queued images are not processed after the interrupt.
+    with exiftool.ExifTool() as store, closing(
+        correct_all(images, target, store, args.workers, source)
+    ) as results, tqdm(total=len(images), desc="Processing Images", unit="img") as progress:
         for result in results:
             tqdm.write(str(result))
             outcomes[result.outcome] += 1
@@ -71,6 +75,12 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "-n", "--negative", action="store_true", help="The new timezone is negative (default is positive)."
+    )
+    parser.add_argument(
+        "-s",
+        "--source-timezone",
+        help="Timezone the camera clock was set to, as [+|-]HH:MM, for images that recorded no UTC offset. "
+        "Without it those images are skipped.",
     )
     parser.add_argument("-r", "--recursive", action="store_true", help="Process images in subdirectories recursively.")
     parser.add_argument("-w", "--workers", type=_positive_int, default=1, help="Number of threads to run in parallel.")
