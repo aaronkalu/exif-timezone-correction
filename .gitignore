@@ -1,2 +1,12 @@
 #Jetbrains Files
 .idea/
+
+# Python
+__pycache__/
+*.egg-info/
+build/
+.venv/
+.pytest_cache/
+
+# macOS
+.DS_Store

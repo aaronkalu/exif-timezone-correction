@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "exif-timezone-correction"
+version = "2.0.0"
+description = "Shift image EXIF capture timestamps into a different timezone."
+readme = "README.MD"
+requires-python = ">=3.9"
+dependencies = ["tqdm>=4"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7"]
+
+[project.scripts]
+exif-timezone-correction = "exif_timezone_correction.cli:main"
+
+[tool.setuptools]
+packages = ["exif_timezone_correction"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
