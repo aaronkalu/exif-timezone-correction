@@ -245,6 +245,17 @@ def test_report_and_camera_filter(tmp_path):
 
 
 @requires_exiftool
+def test_unwritable_report_stops_before_any_change(tmp_path):
+    image = _make_image(tmp_path, "a.jpg", DateTimeOriginal="2024:05:01 10:00:00", OffsetTimeOriginal="+02:00")
+
+    with pytest.raises(SystemExit, match="Cannot write the report"):
+        main(["-d", str(tmp_path), "-t", "05:00", "--report", str(tmp_path / "missing" / "report.csv")])
+
+    assert _read_tags(image) == ("2024:05:01 10:00:00", "-", "+02:00")
+    assert not _undo_logs(tmp_path)
+
+
+@requires_exiftool
 @pytest.mark.skipif(running_as_root, reason="root can write to read-only folders")
 def test_write_failure_is_reported(tmp_path):
     photos = tmp_path / "photos"

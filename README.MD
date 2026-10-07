@@ -75,6 +75,7 @@ Negative values must be written with `=` so they are not mistaken for flags: `--
 - `--undo-log PATH` / `--no-undo-log`: Every run that changes files writes an undo log, by default
   `exif-timezone-correction-undo-<date>-<time>.jsonl` in `--dir`.
 - `--revert UNDO_LOG`: Restore the values recorded in an undo log. Files changed again since then are skipped.
+  A log that several runs appended to (the same `--undo-log`) is undone newest run first.
   Combine with `--dry-run` to preview.
 - `--backup`: Keep ExifTool's `<file>_original` backup copies.
 - `--report PATH`: Write a CSV with the outcome for every file.

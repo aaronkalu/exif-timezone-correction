@@ -325,3 +325,97 @@ def test_plan_reports_assumed_source():
     plan = plan_correction(Path("a.jpg"), image(datetime(2024, 5, 1, 10, 0)), Correction(MINUS_SIX, assumed_source=PLUS_TWO))
 
     assert "assumed +02:00" in plan.detail
+
+
+def test_shift_is_applied_before_inferring_the_offset_from_gps():
+    path = Path("a.jpg")
+    files = {path: image(datetime(2024, 5, 1, 11, 0), gps=datetime(2024, 5, 1, 9, 0))}  # clock 1 hour fast, true +01:00
+    correction = Correction(UtcOffset(0), shift=timedelta(hours=-1), infer_from_gps=True)
+    store, results = run(files, correction)
+
+    assert store.original(path).exif == CaptureTime(datetime(2024, 5, 1, 9, 0), UtcOffset(0))
+    assert "+01:00 inferred" in results[path].detail
+
+
+def test_shift_is_applied_before_choosing_the_named_source_offset():
+    path = Path("a.jpg")
+    # The clock ran two hours slow: 01:30 on the camera (CET) was really 03:30 CEST, after the DST switch.
+    files = {path: image(datetime(2024, 3, 31, 1, 30))}
+    correction = Correction(UtcOffset(0), shift=timedelta(hours=2), assumed_source=BERLIN)
+    store, _ = run(files, correction)
+
+    assert store.original(path).exif == CaptureTime(datetime(2024, 3, 31, 1, 30), UtcOffset(0))
+
+
+def test_relabel_does_not_report_an_unused_source():
+    path = Path("a.jpg")
+    _, results = run({path: image(datetime(2024, 5, 1, 10, 0))}, Correction(MINUS_SIX, mode=Mode.RELABEL, assumed_source=PLUS_TWO))
+
+    assert "assumed" not in results[path].detail
+
+
+def test_all_dates_corrects_a_secondary_date_stored_only_in_xmp():
+    path = Path("a.jpg")
+    created = StoredDate(xmp=CaptureTime(datetime(2024, 5, 1, 10, 0), PLUS_TWO))
+    store, _ = run({path: image(datetime(2024, 5, 1, 10, 0), PLUS_TWO, digitized=created)}, Correction(MINUS_SIX, tags=tuple(DateTag)))
+
+    assert store.files[path].dates[DateTag.DIGITIZED] == StoredDate(xmp=CaptureTime(datetime(2024, 5, 1, 2, 0), MINUS_SIX))
+
+
+def test_writes_start_before_all_batches_are_read():
+    events = []
+
+    class RecordingStore(FakeStore):
+        def read(self, paths):
+            events.append("read")
+            return super().read(paths)
+
+        def write(self, change, backup=False):
+            events.append("write")
+            super().write(change, backup)
+
+    paths = [Path(f"{i}.jpg") for i in range(100)]
+    store = RecordingStore({path: image(datetime(2024, 5, 1), PLUS_TWO) for path in paths})
+    list(correct_all(paths, Correction(MINUS_SIX), store))
+
+    assert events.index("write") < len(events) - 1 - events[::-1].index("read")
+
+
+def test_writes_finishing_after_an_interruption_are_still_reported():
+    paths = [Path(f"{i}.jpg") for i in range(60)]
+    store = FakeStore({path: image(datetime(2024, 5, 1), PLUS_TWO) for path in paths})
+    written = []
+
+    results = correct_all(paths, Correction(MINUS_SIX), store, workers=4, on_written=written.append)
+    next(results)
+    results.close()
+
+    assert written == store.writes
+
+
+def test_revert_undoes_several_runs_newest_first():
+    paths = [Path(f"{i}.jpg") for i in range(30)]
+    originals = {path: image(datetime(2024, 5, 1, 10, 0), PLUS_TWO) for path in paths}
+    store = FakeStore(originals)
+    log = []
+    list(correct_all(paths, Correction(MINUS_SIX), store, on_written=log.append))
+    list(correct_all(paths, Correction(UtcOffset(0)), store, on_written=log.append))
+
+    reverted = list(revert_all(log, store, workers=4))
+
+    assert all(result.outcome is Outcome.UPDATED for result in reverted)
+    assert {path: store.files[path].dates for path in paths} == {path: originals[path].dates for path in paths}
+
+
+def test_revert_reads_in_batches():
+    paths = [Path(f"{i}.jpg") for i in range(30)]
+    store = FakeStore({path: image(datetime(2024, 5, 1, 10, 0), PLUS_TWO) for path in paths})
+    log = []
+    list(correct_all(paths, Correction(MINUS_SIX), store, on_written=log.append))
+    reads = []
+    original_read = store.read
+    store.read = lambda batch: reads.append(batch) or original_read(batch)
+
+    list(revert_all(log, store))
+
+    assert len(reads) == 2

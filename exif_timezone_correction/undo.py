@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import IO, Any
@@ -13,10 +14,13 @@ from .domain import CaptureTime, DateChange, DateTag, FileChange, StoredDate, Ut
 class UndoLog:
     def __init__(self, stream: IO[str]) -> None:
         self._stream = stream
+        self._lock = threading.Lock()
 
     def record(self, change: FileChange) -> None:
-        self._stream.write(json.dumps(_dump_change(change)) + "\n")
-        self._stream.flush()
+        line = json.dumps(_dump_change(change)) + "\n"
+        with self._lock:  # called from the worker threads
+            self._stream.write(line)
+            self._stream.flush()
 
 
 def load(path: Path) -> list[FileChange]:

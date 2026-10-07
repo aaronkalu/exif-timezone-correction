@@ -1,16 +1,22 @@
 from __future__ import annotations
 
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import Enum
+from functools import partial
+from itertools import islice
 from pathlib import Path
-from typing import Iterator, Mapping, Protocol, Sequence
+from typing import Callable, Iterator, List, Mapping, Protocol, Sequence, TypeVar, Union
 
 from .domain import CaptureTime, DateChange, DateTag, FileChange, ImageMetadata, MetadataError, UtcOffset, Zone
 
 READ_BATCH_SIZE = 25
 _GPS_ROUNDING_MINUTES = 15
+
+_Batch = TypeVar("_Batch")
+_Job = Callable[[], List["CorrectionResult"]]
+_Step = List[Union["CorrectionResult", _Job]]
 
 
 class MetadataStore(Protocol):
@@ -98,7 +104,10 @@ def plan_correction(
     if rejection is not None:
         return CorrectionResult(path, Outcome.SKIPPED, rejection)
 
-    source, source_note = _resolve_source(original, metadata, correction)
+    if correction.mode is Mode.RELABEL:
+        source, source_note = None, None  # relabelling keeps the clock time, so the source offset is irrelevant
+    else:
+        source, source_note = _resolve_source(original, metadata, correction)
     if source is None and correction.target is not None and correction.mode is Mode.CONVERT:
         return CorrectionResult(
             path,
@@ -138,12 +147,14 @@ def _resolve_source(
 ) -> tuple[UtcOffset | None, str | None]:
     if original.offset is not None:
         return original.offset, None
+    # The offset belongs to the corrected clock time, which is what _transform converts.
+    local_time = original.local_time + correction.shift
     if correction.infer_from_gps and metadata.gps_utc_time is not None:
-        inferred = _offset_from_gps(original.local_time, metadata.gps_utc_time)
+        inferred = _offset_from_gps(local_time, metadata.gps_utc_time)
         if inferred is not None:
             return inferred, f"no offset was recorded, {inferred} inferred from GPS time"
     if correction.assumed_source is not None:
-        assumed = correction.assumed_source.offset_at_local(original.local_time)
+        assumed = correction.assumed_source.offset_at_local(local_time)
         return assumed, f"no offset was recorded, assumed {assumed}"
     return None, None
 
@@ -177,9 +188,9 @@ def _file_change(
         before = metadata.date(tag)
         if not with_exif and before.xmp is None:
             continue
-        if with_exif and before.exif is None and tag is not DateTag.ORIGINAL:
-            continue  # only DateTimeOriginal is created; other dates are corrected where they exist
-        after = before.rewritten(capture, with_exif)
+        # Only DateTimeOriginal is created in EXIF; other dates are corrected where they exist.
+        write_exif = with_exif and (before.exif is not None or tag is DateTag.ORIGINAL)
+        after = before.rewritten(capture, write_exif)
         if after != before:
             dates.append(DateChange(tag, before, after))
     return FileChange(path, tuple(dates))
@@ -195,56 +206,81 @@ def correct_all(
     workers: int = 1,
     dry_run: bool = False,
     backup: bool = False,
+    on_written: Callable[[FileChange], None] | None = None,
 ) -> Iterator[CorrectionResult]:
+    # on_written runs in worker threads right after each write, including writes that finish after the caller
+    # stopped iterating (e.g. on Ctrl+C), whose results are never yielded; an undo log must record from there.
     sidecars = sidecars or {}
-    batches = [images[i : i + READ_BATCH_SIZE] for i in range(0, len(images), READ_BATCH_SIZE)]
 
-    def handle(item: _Read | CorrectionResult) -> Iterator[CorrectionResult | Future]:
-        if isinstance(item, CorrectionResult):
-            yield item
-            return
-        plan = _plan_read(item, correction, selection)
-        if isinstance(plan, CorrectionResult):
-            yield plan
-        elif dry_run:
-            yield CorrectionResult(plan.path, Outcome.WOULD_UPDATE, plan.detail, plan.changes)
-        else:
-            yield executor.submit(_apply, plan, store, backup)
+    def read(batch: Sequence[Path]) -> _Step:
+        steps: _Step = []
+        for item in _read_batch(batch, store, sidecars):
+            plan = item if isinstance(item, CorrectionResult) else _plan_read(item, correction, selection)
+            if isinstance(plan, CorrectionResult):
+                steps.append(plan)
+            elif dry_run:
+                steps.append(CorrectionResult(plan.path, Outcome.WOULD_UPDATE, plan.detail, plan.changes))
+            else:
+                steps.append(partial(_apply, plan, store, backup, on_written))
+        return steps
 
-    with _Pool(workers) as executor:
-        initial = [executor.submit(_read_batch, batch, store, sidecars) for batch in batches]
-        yield from executor.drain(initial, handle)
+    return _pipeline(_batched(images), read, workers)
 
 
 def revert_all(
     changes: Sequence[FileChange], store: MetadataStore, *, workers: int = 1, dry_run: bool = False
 ) -> Iterator[CorrectionResult]:
-    def handle(item: CorrectionResult) -> Iterator[CorrectionResult]:
-        yield item
+    by_path: dict[Path, list[FileChange]] = {}
+    for change in changes:
+        by_path.setdefault(change.path, []).append(change)
 
-    with _Pool(workers) as executor:
-        initial = [executor.submit(_revert, change, store, dry_run) for change in changes]
-        yield from executor.drain(initial, handle)
-
-
-class _Pool(ThreadPoolExecutor):
-    def drain(self, initial: Sequence[Future], handle) -> Iterator[CorrectionResult]:
-        # Results are yielded as they finish, so one slow file does not hold back the ones behind it.
-        pending = set(initial)
+    def read(batch: Sequence[tuple[Path, list[FileChange]]]) -> _Step:
         try:
-            while pending:
-                done, pending = wait(pending, return_when=FIRST_COMPLETED)
-                for future in done:
-                    items = future.result()
-                    for item in items if isinstance(items, list) else [items]:
-                        for output in handle(item):
-                            if isinstance(output, Future):
-                                pending.add(output)
-                            else:
-                                yield output
-        finally:
-            # Runs when the caller closes the generator early (e.g. Ctrl+C): drop queued work, finish files in progress.
-            self.shutdown(wait=True, cancel_futures=True)
+            found = store.read([path for path, _ in batch])
+        except Exception as error:
+            return [_failure(change.path, error) for _, file_changes in batch for change in file_changes]
+        missing = MetadataError("exiftool returned no metadata")
+        # One job per file, so entries from several runs on the same file are never written concurrently.
+        return [
+            partial(_revert_file, file_changes, found.get(path, missing), store, dry_run)
+            for path, file_changes in batch
+        ]
+
+    return _pipeline(_batched(list(by_path.items())), read, workers)
+
+
+def _batched(items: Sequence[_Batch]) -> Iterator[Sequence[_Batch]]:
+    return (items[i : i + READ_BATCH_SIZE] for i in range(0, len(items), READ_BATCH_SIZE))
+
+
+def _pipeline(
+    batches: Iterator[_Batch], read: Callable[[_Batch], _Step], workers: int
+) -> Iterator[CorrectionResult]:
+    # Only a few batches are read ahead of the writes, so writing starts early and memory stays bounded.
+    # Results are yielded as they finish, so one slow file does not hold back the ones behind it.
+    executor = ThreadPoolExecutor(workers)
+    try:
+        reads = {executor.submit(read, batch) for batch in islice(batches, workers)}
+        pending: set[Future] = set(reads)
+        while pending:
+            done, pending = wait(pending, return_when=FIRST_COMPLETED)
+            for future in done:
+                if future not in reads:
+                    yield from future.result()
+                    continue
+                reads.remove(future)
+                for step in future.result():
+                    if isinstance(step, CorrectionResult):
+                        yield step
+                    else:
+                        pending.add(executor.submit(step))
+                for batch in islice(batches, 1):
+                    next_read = executor.submit(read, batch)
+                    reads.add(next_read)
+                    pending.add(next_read)
+    finally:
+        # Runs when the caller closes the generator early (e.g. Ctrl+C): drop queued work, finish files in progress.
+        executor.shutdown(wait=True, cancel_futures=True)
 
 
 def _read_batch(
@@ -275,33 +311,46 @@ def _plan_read(item: _Read, correction: Correction, selection: Selection) -> Cor
         return _failure(item.path, error)
 
 
-def _apply(plan: _Plan, store: MetadataStore, backup: bool) -> CorrectionResult:
+def _apply(
+    plan: _Plan, store: MetadataStore, backup: bool, on_written: Callable[[FileChange], None] | None
+) -> list[CorrectionResult]:
     written: list[FileChange] = []
     for change in plan.changes:
         try:
             store.write(change, backup)
         except Exception as error:
             prefix = "" if change.path == plan.path else f"sidecar {change.path.name}: "
-            return CorrectionResult(plan.path, Outcome.FAILED, prefix + _describe(error), tuple(written))
+            return [CorrectionResult(plan.path, Outcome.FAILED, prefix + _describe(error), tuple(written))]
         written.append(change)
-    return CorrectionResult(plan.path, Outcome.UPDATED, plan.detail, tuple(written))
+        if on_written is not None:
+            on_written(change)
+    return [CorrectionResult(plan.path, Outcome.UPDATED, plan.detail, tuple(written))]
 
 
-def _revert(change: FileChange, store: MetadataStore, dry_run: bool) -> CorrectionResult:
-    try:
-        current = store.read([change.path])[change.path]
+def _revert_file(
+    changes: Sequence[FileChange], current: ImageMetadata | Exception, store: MetadataStore, dry_run: bool
+) -> list[CorrectionResult]:
+    results = []
+    # A log appended to by several runs is undone newest first, each entry starting from the state the next one left.
+    for change in reversed(changes):
         if isinstance(current, Exception):
-            raise current
+            results.append(_failure(change.path, current))
+            continue
         if any(current.date(c.tag) != c.after for c in change.dates):
-            return CorrectionResult(change.path, Outcome.SKIPPED, "changed since the undo log was written.")
+            results.append(CorrectionResult(change.path, Outcome.SKIPPED, "changed since the undo log was written."))
+            continue
         restored = change.reversed()
         detail = ", ".join(f"{c.tag.tag_name} -> {c.after.effective() or '(removed)'}" for c in restored.dates)
-        if dry_run:
-            return CorrectionResult(change.path, Outcome.WOULD_UPDATE, detail, (restored,))
-        store.write(restored)
-    except Exception as error:
-        return _failure(change.path, error)
-    return CorrectionResult(change.path, Outcome.UPDATED, detail, (restored,))
+        if not dry_run:
+            try:
+                store.write(restored)
+            except Exception as error:
+                results.append(_failure(change.path, error))
+                current = error
+                continue
+        results.append(CorrectionResult(change.path, Outcome.WOULD_UPDATE if dry_run else Outcome.UPDATED, detail, (restored,)))
+        current = replace(current, dates={**current.dates, **{c.tag: c.after for c in restored.dates}})
+    return results
 
 
 def _failure(path: Path, error: Exception, prefix: str = "") -> CorrectionResult:

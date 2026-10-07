@@ -56,6 +56,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 return 0
             total = len(images)
             sidecars = {} if args.no_sidecars else find_sidecars(images)
+            log = None if args.dry_run or args.no_undo_log else stack.enter_context(_UndoLogFile(_undo_log_path(args)))
             results = correct_all(
                 images,
                 correction,
@@ -65,11 +66,11 @@ def main(argv: Sequence[str] | None = None) -> int:
                 workers=args.workers,
                 dry_run=args.dry_run,
                 backup=args.backup,
+                on_written=None if log is None else log.record,
             )
-            log = None if args.dry_run or args.no_undo_log else stack.enter_context(_UndoLogFile(_undo_log_path(args)))
         report = stack.enter_context(_Report(args.report)) if args.report else None
         # closing() shuts the worker pool down on Ctrl+C, so queued images are not processed after the interrupt.
-        outcomes = _run(stack.enter_context(closing(results)), total, args.quiet, log, report)
+        outcomes = _run(stack.enter_context(closing(results)), total, args.quiet, report)
 
     _print_summary(outcomes, args.dry_run)
     if log is not None and log.used:
@@ -77,15 +78,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     return 1 if outcomes[Outcome.FAILED] else 0
 
 
-def _run(
-    results: Iterator[CorrectionResult], total: int, quiet: bool, log: _UndoLogFile | None, report: _Report | None
-) -> Counter[Outcome]:
+def _run(results: Iterator[CorrectionResult], total: int, quiet: bool, report: _Report | None) -> Counter[Outcome]:
     outcomes: Counter[Outcome] = Counter()
     with tqdm(total=total, desc="Processing", unit="file", disable=quiet) as progress:
         for result in results:
-            if log is not None:
-                for change in result.changes:
-                    log.record(change)
             if report is not None:
                 report.record(result)
             if not quiet or result.outcome is Outcome.FAILED:
@@ -196,7 +192,10 @@ class _Report:
         self._path = path
 
     def __enter__(self) -> _Report:
-        self._stream = self._path.open("w", newline="", encoding="utf-8")
+        try:
+            self._stream = self._path.open("w", newline="", encoding="utf-8")
+        except OSError as error:
+            raise SystemExit(f"Cannot write the report {self._path}: {error}.")
         self._writer = csv.writer(self._stream)
         self._writer.writerow(["path", "outcome", "detail"])
         return self
