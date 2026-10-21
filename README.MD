@@ -152,3 +152,14 @@ The end-to-end tests run only when `exiftool` is installed.
 ## Important Notes
 - **Backup:** Files are modified in place. The undo log can restore the dates, and `--backup` keeps full copies, but back up your images before running the script.
 - **EXIF Quality:** Modifying the EXIF data does not affect the image quality, as it only updates the metadata.
+## Comparing against the original script
+
+`scripts/compare.py` runs the original `timezone-correction.py` (`e7250a0`) and the current version on two copies of
+a folder and checks every image against the result the conversion must give: the same moment in time, shown in the
+target offset, with sub-seconds kept, and images already in that offset left alone. It also reports any change to
+other metadata, pixel data or file times, and checks `--dry-run` and `--revert`. The source folder is only read.
+
+```bash
+python scripts/compare.py --photos ~/Pictures/trip --timezone +09:00 --out /tmp/tz-compare
+python scripts/compare.py ... -- --all-dates   # arguments after -- go to the current version
+```
