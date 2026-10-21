@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import IO, Mapping, Sequence
 
 from .domain import UTC, CaptureTime, DateTag, FileChange, ImageMetadata, MetadataError, StoredDate, UtcOffset
+from .files import is_video
 
 _EXECUTABLE = "exiftool"
 TIMEOUT_SECONDS = 120.0
@@ -28,10 +29,16 @@ _UPDATED_PATTERN = re.compile(r"^\s*1 image files updated$", re.MULTILINE)
 
 _GPS_TAG = "Composite:GPSDateTime"
 _MODEL_TAG = "EXIF:Model"
+# Apple's CreationDate carries the local offset that Photos shows a video in; QuickTime CreateDate is UTC.
+_VIDEO_CREATION_TAG = "Keys:CreationDate"
+_VIDEO_CREATION_KEY = "QuickTime:CreationDate"
+_VIDEO_UTC_KEY = "QuickTime:CreateDate"
+_SONY_CREATION_KEY = "XML:CreationDateValue"
+_SONY_MODEL_KEY = "XML:DeviceModelName"
 
 
 def _read_tags() -> list[str]:
-    tags = [_GPS_TAG, _MODEL_TAG]
+    tags = [_GPS_TAG, _MODEL_TAG, _VIDEO_CREATION_TAG, _VIDEO_UTC_KEY, _SONY_CREATION_KEY, _SONY_MODEL_KEY]
     for tag in DateTag:
         tags += [f"EXIF:{tag.tag_name}", f"EXIF:{tag.offset_tag_name}", f"XMP:{tag.tag_name}"]
     return tags
@@ -100,7 +107,10 @@ class ExifTool:
         if not backup:
             args.append("-overwrite_original")
         for date in change.dates:
-            args += _assignments(date.tag, date.before, date.after)
+            if is_video(change.path):
+                args += _video_assignments(date.after)
+            else:
+                args += _assignments(date.tag, date.before, date.after)
         result = self._execute(*args, _as_argument(change.path))
         if result.status != 0:
             raise MetadataError(result.stderr.strip() or f"{_EXECUTABLE} exited with code {result.status}")
@@ -129,6 +139,13 @@ def _assignments(tag: DateTag, before: StoredDate, after: StoredDate) -> list[st
         value = f"{_format_datetime(xmp.local_time)}{xmp.offset or ''}" if xmp else ""
         args.append(f"-XMP:{tag.tag_name}={value}")
     return args
+
+
+def _video_assignments(after: StoredDate) -> list[str]:
+    value = after.exif
+    if value is None:
+        return [f"-{_VIDEO_CREATION_TAG}="]
+    return [f"-{_VIDEO_CREATION_TAG}={_format_datetime(value.local_time)}{value.offset}"]
 
 
 @dataclass(frozen=True)
@@ -227,6 +244,8 @@ class _Session:
 
 
 def _parse_record(record: Mapping[str, object]) -> ImageMetadata:
+    if is_video(Path(str(record.get("SourceFile", "")))):
+        return _parse_video_record(record)
     dates = {}
     for tag in DateTag:
         exif_text = record.get(f"EXIF:{tag.tag_name}")
@@ -252,6 +271,27 @@ def _parse_record(record: Mapping[str, object]) -> ImageMetadata:
             pass
     model = record.get(_MODEL_TAG)
     return ImageMetadata(dates, gps_time, None if model is None else str(model).strip())
+
+
+def _parse_video_record(record: Mapping[str, object]) -> ImageMetadata:
+    creation = _parse_optional(record.get(_VIDEO_CREATION_KEY))
+    fallback = _parse_optional(record.get(_SONY_CREATION_KEY))
+    if fallback is None or fallback.offset is None:
+        utc = _parse_optional(record.get(_VIDEO_UTC_KEY))
+        fallback = CaptureTime(utc.local_time, UTC) if utc is not None else None
+    dates = {DateTag.ORIGINAL: StoredDate(exif=creation)} if creation is not None else {}
+    model = record.get(_SONY_MODEL_KEY)
+    return ImageMetadata(dates, None, None if model is None else str(model).strip(), True, fallback)
+
+
+def _parse_optional(value: object) -> CaptureTime | None:
+    # Missing or placeholder dates ("0000:00:00 00:00:00") count as not recorded.
+    if value is None:
+        return None
+    try:
+        return _parse_xmp(str(value))
+    except ValueError:
+        return None
 
 
 def _parse_exif(datetime_text: str, offset_text: object) -> CaptureTime:

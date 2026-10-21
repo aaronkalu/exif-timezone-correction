@@ -10,6 +10,7 @@ RAW_EXTENSIONS = frozenset(
 IMAGE_EXTENSIONS = RAW_EXTENSIONS | {
     ".jpg", ".jpeg", ".tif", ".tiff", ".heic", ".heif", ".hif", ".avif", ".png", ".webp",
 }
+VIDEO_EXTENSIONS = frozenset({".mp4", ".mov", ".m4v"})
 _SIDECAR_EXTENSION = ".xmp"
 
 # macOS writes "._<name>" metadata files on non-Apple filesystems; they are not images.
@@ -40,6 +41,8 @@ def find_sidecars(images: list[Path]) -> dict[Path, list[Path]]:
                 for path in image.parent.iterdir()
                 if path.suffix.casefold() == _SIDECAR_EXTENSION and path.is_file() and not _is_apple_double(path)
             }
+        if is_video(image):
+            continue
         names = [image.name + _SIDECAR_EXTENSION]
         if image.suffix.lower() in RAW_EXTENSIONS:
             names.append(image.stem + _SIDECAR_EXTENSION)
@@ -66,8 +69,12 @@ def _iter_files(directory: Path, recursive: bool) -> Iterator[Path]:
         yield from (path for path in (Path(root, name) for name in filenames) if path.is_file())
 
 
+def is_video(path: Path) -> bool:
+    return path.suffix.lower() in VIDEO_EXTENSIONS
+
+
 def _is_image(path: Path) -> bool:
-    return path.suffix.lower() in IMAGE_EXTENSIONS and not _is_apple_double(path)
+    return (path.suffix.lower() in IMAGE_EXTENSIONS or is_video(path)) and not _is_apple_double(path)
 
 
 def _is_apple_double(path: Path) -> bool:

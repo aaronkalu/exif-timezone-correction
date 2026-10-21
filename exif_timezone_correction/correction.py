@@ -96,6 +96,8 @@ def plan_correction(
     sidecars: Mapping[Path, ImageMetadata] | None = None,
 ) -> CorrectionResult | _Plan:
     sidecars = sidecars or {}
+    if metadata.is_video:
+        return _plan_video(path, metadata, correction, selection)
     original = metadata.date(DateTag.ORIGINAL).effective()
     if original is None:
         return CorrectionResult(path, Outcome.SKIPPED, "no original capture time recorded.")
@@ -140,6 +142,32 @@ def plan_correction(
     if notes:
         detail += f" ({'; '.join(notes)})"
     return _Plan(path, detail, changes)
+
+
+def _plan_video(
+    path: Path, metadata: ImageMetadata, correction: Correction, selection: Selection
+) -> CorrectionResult | _Plan:
+    # Videos store the moment itself (QuickTime dates are UTC); only the Apple CreationDate, which says which
+    # timezone to show it in, is written. Changing the moment (relabel, shift) is not supported for videos.
+    if correction.mode is Mode.RELABEL or correction.shift:
+        return CorrectionResult(path, Outcome.SKIPPED, "videos can only be converted to another timezone.")
+    if correction.target is None:
+        return CorrectionResult(path, Outcome.SKIPPED, "no target timezone for a video.")
+    stored = metadata.date(DateTag.ORIGINAL).exif
+    current = stored if stored is not None and stored.offset is not None else metadata.video_capture
+    if current is None or current.offset is None:
+        return CorrectionResult(path, Outcome.SKIPPED, "no capture time recorded.")
+    rejection = selection.rejects(current, metadata)
+    if rejection is not None:
+        return CorrectionResult(path, Outcome.SKIPPED, rejection)
+
+    utc_time = current.local_time - current.offset.as_timedelta()
+    target = correction.target.offset_at_utc(utc_time)
+    desired = CaptureTime(utc_time + target.as_timedelta(), target)
+    change = _file_change(path, metadata, {DateTag.ORIGINAL: desired}, with_exif=True)
+    if not change.dates:
+        return CorrectionResult(path, Outcome.SKIPPED, "already correct.")
+    return _Plan(path, f"{current} -> {desired}", (change,))
 
 
 def _resolve_source(
