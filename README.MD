@@ -41,7 +41,7 @@ python timezone-correction.py --dir /path/to/images/ --timezone ZONE [options]
 
 Negative values must be written with `=` so they are not mistaken for flags: `--timezone=-06:00`, `--shift=-1:00`.
 
-**What to change:**
+### What to change
 
 - `--timezone` or `-t`: New timezone. Either a fixed offset between -12:00 and +14:00 (`+02:00`, `-06:30`) or an IANA
   name such as `Europe/Berlin` or `America/New_York`. With a name, the offset is chosen for each photo's own date, so a
@@ -60,16 +60,16 @@ Negative values must be written with `=` so they are not mistaken for flags: `--
   `AllDates`. Without it only `DateTimeOriginal` is changed, and some photo apps that read `CreateDate` may show a
   different time.
 
-**Which images:**
+### Which images
 
 - `--dir` or `-d`: Directory containing images.
 - `--recursive` or `-r`: Process images in subdirectories recursively. Symlinked folders are followed.
 - `--from` / `--until`: Only images whose original local capture time is in this range, as `YYYY-MM-DD` or
   `"YYYY-MM-DD HH:MM"`. A bare `--until` date includes that whole day.
 - `--camera`: Only images whose camera model contains this text (case-insensitive), for shoots with several cameras.
-- `--no-sidecars`: Do not update XMP sidecar files (see below).
+- `--no-sidecars`: Do not update XMP sidecar files (see [How It Works](#how-it-works)).
 
-**Safety and output:**
+### Safety and output
 
 - `--dry-run`: Show what would change without writing anything.
 - `--undo-log PATH` / `--no-undo-log`: Every run that changes files writes an undo log, by default
@@ -83,7 +83,7 @@ Negative values must be written with `=` so they are not mistaken for flags: `--
 - `--workers` or `-w`: Number of files processed in parallel. Default is the number of CPUs, at most 4.
 - `--version`: Print the version.
 
-**Examples:**
+### Examples
 
 ```bash
 # Preview, then move photos into UTC-06:00
@@ -100,7 +100,7 @@ python timezone-correction.py -d shoot/ --shift 1:02 --camera "EOS R5" --all-dat
 python timezone-correction.py --revert /path/to/images/exif-timezone-correction-undo-20241007-101500.jsonl
 ```
 
-**Supported File Formats**
+### Supported File Formats
 
 The script processes files with these extensions (case-insensitive):
 
