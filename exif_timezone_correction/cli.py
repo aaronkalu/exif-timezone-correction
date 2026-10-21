@@ -52,7 +52,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         else:
             images = find_images(args.dir, args.recursive)
             if not images:
-                print("No images found.")
+                print("No images or videos found.")
                 return 0
             total = len(images)
             sidecars = {} if args.no_sidecars else find_sidecars(images)

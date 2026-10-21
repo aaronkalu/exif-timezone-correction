@@ -1,6 +1,7 @@
 import csv
 import os
 import shutil
+import struct
 import subprocess
 from pathlib import Path
 
@@ -252,3 +253,31 @@ def test_hung_exiftool_times_out(tmp_path):
 
     with ExifTool(timeout=1) as store, pytest.raises(MetadataError, match="timed out"):
         store.read([fifo])
+
+
+def _box(kind, payload):
+    return struct.pack(">I", 8 + len(payload)) + kind + payload
+
+
+# ftyp + moov/mvhd + empty mdat: enough for ExifTool to read and write QuickTime tags.
+_MVHD = _box(
+    b"mvhd",
+    bytes(4) + struct.pack(">IIII", 0, 0, 600, 0) + struct.pack(">IH", 0x10000, 0x100) + bytes(10)
+    + struct.pack(">9I", 0x10000, 0, 0, 0, 0x10000, 0, 0, 0, 0x40000000) + bytes(24) + struct.pack(">I", 2),
+)
+TINY_MP4 = _box(b"ftyp", b"isom" + bytes(4) + b"isommp42") + _box(b"moov", _MVHD) + _box(b"mdat", b"")
+
+
+@requires_exiftool
+def test_video_gets_creation_date_and_revert_removes_it(tmp_path):
+    video = tmp_path / "clip.MP4"
+    video.write_bytes(TINY_MP4)
+    _set_tags(video, **{"QuickTime:CreateDate": "2026:04:02 11:38:34"})
+    tags = ("Keys:CreationDate", "QuickTime:CreateDate")
+
+    assert main(["-d", str(tmp_path), "-t", "Asia/Seoul"]) == 0
+    assert _read_tags(video, tags) == ("2026:04:02 20:38:34+09:00", "2026:04:02 11:38:34")
+
+    (log,) = _undo_logs(tmp_path)
+    assert main(["--revert", str(log)]) == 0
+    assert _read_tags(video, tags) == ("-", "2026:04:02 11:38:34")

@@ -168,6 +168,9 @@ class ImageMetadata:
     dates: Mapping[DateTag, StoredDate] = field(default_factory=dict)
     gps_utc_time: datetime | None = None
     camera_model: str | None = None
+    is_video: bool = False
+    video_capture: CaptureTime | None = None
+    """For a video without an Apple CreationDate: Sony's XML capture time, else the QuickTime CreateDate in UTC."""
 
     def date(self, tag: DateTag) -> StoredDate:
         return self.dates.get(tag, StoredDate())

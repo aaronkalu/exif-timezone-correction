@@ -109,8 +109,20 @@ The script processes files with these extensions (case-insensitive):
 - HEIC/HEIF and AVIF (.heic, .heif, .hif, .avif)
 - PNG and WebP (.png, .webp)
 - RAW formats (.raw, .cr2, .cr3, .nef, .nrw, .arw, .raf, .rw2, .orf, .dng, .pef, .srw)
+- Videos (.mp4, .mov, .m4v), with `--mode convert` only
 
-Videos are not supported: QuickTime stores its dates in UTC under different tags.
+### Videos
+
+A video stores the moment it was recorded in UTC (QuickTime `CreateDate`), so its time is already right; what is
+missing is the timezone to show it in. Converting a video writes Apple's `CreationDate` with the target offset, which
+Apple Photos and other apps use to show the local time. The UTC dates are left unchanged.
+
+The moment is taken from an existing `CreationDate` with offset, else from the capture time in Sony's embedded XML,
+else from `CreateDate`, read as UTC as the QuickTime format defines it. Cameras that store local time in `CreateDate`
+(some GoPro and DJI models) are not handled correctly. `--mode relabel` and `--shift` would change the moment and are
+skipped for videos. `--revert` restores the previous `CreationDate`, or removes it if there was none.
+
+Apple Photos does not reread dates of videos it has already imported: re-import them after converting.
 
 ## How It Works
 

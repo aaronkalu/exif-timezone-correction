@@ -1,4 +1,5 @@
 import threading
+from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -49,7 +50,7 @@ class FakeStore:
         dates = dict(current.dates)
         dates.update({date.tag: date.after for date in change.dates})
         with self.lock:
-            self.files[change.path] = ImageMetadata(dates, current.gps_utc_time, current.camera_model)
+            self.files[change.path] = replace(current, dates=dates)
             self.writes.append(change)
 
     def original(self, path):
@@ -419,3 +420,67 @@ def test_revert_reads_in_batches():
     list(revert_all(log, store))
 
     assert len(reads) == 2
+
+
+SEOUL = NamedZone(ZoneInfo("Asia/Seoul"))
+KST = UtcOffset.parse("+09:00")
+SHOW_UTC = datetime(2026, 4, 2, 11, 38, 34)
+SHOW_KST = CaptureTime(datetime(2026, 4, 2, 20, 38, 34), KST)
+
+
+def video(utc=None, sony=None, creation=None):
+    dates = {DateTag.ORIGINAL: StoredDate(exif=creation)} if creation else {}
+    fallback = sony or (CaptureTime(utc, UtcOffset(0)) if utc else None)
+    return ImageMetadata(dates, None, None, True, fallback)
+
+
+def test_video_gets_creation_date_in_target_timezone():
+    path = Path("a.mp4")
+    store, results = run({path: video(utc=SHOW_UTC)}, Correction(SEOUL))
+
+    assert results[path].outcome is Outcome.UPDATED
+    assert store.original(path).exif == SHOW_KST
+
+
+def test_video_moment_comes_from_creation_date_then_sony_xml_then_utc():
+    from_creation = Path("a.mov")
+    from_sony = Path("b.mp4")
+    files = {
+        from_creation: video(utc=datetime(2020, 1, 1), creation=CaptureTime(datetime(2026, 4, 2, 13, 38, 34), PLUS_TWO)),
+        from_sony: video(sony=SHOW_KST),
+    }
+    store, _ = run(files, Correction(MINUS_SIX))
+
+    expected = CaptureTime(datetime(2026, 4, 2, 5, 38, 34), MINUS_SIX)
+    assert store.original(from_creation).exif == expected
+    assert store.original(from_sony).exif == expected
+
+
+def test_video_already_in_target_timezone_is_skipped():
+    path = Path("a.mp4")
+    _, results = run({path: video(utc=SHOW_UTC, creation=SHOW_KST)}, Correction(SEOUL))
+    assert results[path].outcome is Outcome.SKIPPED
+    assert results[path].detail == "already correct."
+
+
+def test_video_is_skipped_when_the_moment_would_change_or_is_unknown():
+    path = Path("a.mp4")
+    for correction in (
+        Correction(SEOUL, mode=Mode.RELABEL),
+        Correction(SEOUL, shift=timedelta(hours=1)),
+        Correction(assumed_source=PLUS_TWO),
+    ):
+        store, results = run({path: video(utc=SHOW_UTC)}, correction)
+        assert results[path].outcome is Outcome.SKIPPED
+        assert store.writes == []
+    _, results = run({path: video()}, Correction(SEOUL))
+    assert results[path].detail == "no capture time recorded."
+
+
+def test_revert_removes_video_creation_date_it_added():
+    path = Path("a.mp4")
+    store, results = run({path: video(utc=SHOW_UTC)}, Correction(SEOUL))
+
+    list(revert_all(results[path].changes, store))
+
+    assert store.original(path) == StoredDate()
