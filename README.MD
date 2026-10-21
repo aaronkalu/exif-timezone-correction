@@ -82,7 +82,6 @@ Negative values must be written with `=` so they are not mistaken for flags: `--
 - `--quiet` or `-q`: Print only failures and the summary.
 - `--workers` or `-w`: Number of files processed in parallel. Default is the number of CPUs, at most 4.
 - `--version`: Print the version.
-- `--negative` or `-n`: Deprecated. Marks an unsigned `--timezone` as negative; write the sign instead.
 
 **Examples:**
 

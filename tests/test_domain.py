@@ -37,10 +37,6 @@ def test_offset_round_trips_through_text(text):
     assert str(UtcOffset.parse(text)) == text
 
 
-def test_negated():
-    assert UtcOffset.parse("06:30").negated() == UtcOffset.parse("-06:30")
-
-
 def test_in_timezone_keeps_the_same_instant():
     original = CaptureTime(datetime(2024, 5, 1, 10, 0), UtcOffset.parse("+02:00"))
 

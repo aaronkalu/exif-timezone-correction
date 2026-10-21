@@ -45,9 +45,6 @@ class UtcOffset:
         # Historic zone offsets (local mean time) can include seconds, which no metadata tag can store.
         return cls(round(delta.total_seconds() / 60))
 
-    def negated(self) -> UtcOffset:
-        return UtcOffset(-self.total_minutes)
-
     def as_timedelta(self) -> timedelta:
         return timedelta(minutes=self.total_minutes)
 
