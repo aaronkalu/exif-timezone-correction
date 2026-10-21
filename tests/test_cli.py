@@ -6,31 +6,13 @@ from pathlib import Path
 
 import pytest
 
-from exif_timezone_correction.cli import main, resolve_target_zone
-from exif_timezone_correction.domain import MetadataError, NamedZone, UtcOffset
+from exif_timezone_correction.cli import main
+from exif_timezone_correction.domain import MetadataError
 from exif_timezone_correction.exiftool import ExifTool
 
 BLANK_JPEG = Path(__file__).parent / "data" / "blank.jpg"
 requires_exiftool = pytest.mark.skipif(shutil.which("exiftool") is None, reason="exiftool not installed")
 running_as_root = hasattr(os, "geteuid") and os.geteuid() == 0
-
-
-@pytest.mark.parametrize(
-    ("timezone", "negative", "expected"),
-    [("06:00", False, "+06:00"), ("06:00", True, "-06:00"), ("-06:30", False, "-06:30"), ("+02:00", False, "+02:00")],
-)
-def test_resolve_target_zone(timezone, negative, expected):
-    assert resolve_target_zone(timezone, negative) == UtcOffset.parse(expected)
-
-
-def test_resolve_named_target_zone():
-    assert isinstance(resolve_target_zone("America/New_York", False), NamedZone)
-
-
-@pytest.mark.parametrize(("timezone", "negative"), [("+06:00", True), ("Europe/Berlin", True), ("Mars/Olympus", False)])
-def test_invalid_target_zones(timezone, negative):
-    with pytest.raises(ValueError):
-        resolve_target_zone(timezone, negative)
 
 
 @pytest.mark.parametrize(
@@ -95,14 +77,6 @@ def test_end_to_end(tmp_path):
     assert _read_tags(with_subsec) == ("2024:05:01 01:30:00", "045", "-06:30")
     assert _read_tags(no_offset) == ("2024:05:01 10:00:00", "-", "-")
     assert _read_tags(no_date) == ("-", "-", "-")
-
-
-@requires_exiftool
-def test_negative_flag_still_works(tmp_path):
-    image = _make_image(tmp_path, "a.jpg", DateTimeOriginal="2024:05:01 10:00:00", OffsetTimeOriginal="+02:00")
-
-    assert main(["-d", str(tmp_path), "-t", "06:30", "-n"]) == 0
-    assert _read_tags(image) == ("2024:05:01 01:30:00", "-", "-06:30")
 
 
 @requires_exiftool

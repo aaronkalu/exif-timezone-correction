@@ -14,7 +14,7 @@ from tqdm import tqdm
 
 from . import __version__, exiftool, undo
 from .correction import Correction, CorrectionResult, Mode, Outcome, Selection, correct_all, revert_all
-from .domain import DateTag, FileChange, NamedZone, Zone, parse_duration, parse_zone
+from .domain import DateTag, FileChange, parse_duration, parse_zone
 from .files import find_images, find_sidecars
 
 DEFAULT_WORKERS = min(4, os.cpu_count() or 1)
@@ -108,9 +108,7 @@ def _print_summary(outcomes: Counter[Outcome], dry_run: bool) -> None:
 def _build_request(args: argparse.Namespace) -> tuple[Correction, Selection]:
     if args.dir is None:
         raise ValueError("--dir is required unless --revert is given.")
-    target = None if args.timezone is None else resolve_target_zone(args.timezone, args.negative)
-    if args.negative and target is None:
-        raise ValueError("--negative needs --timezone.")
+    target = None if args.timezone is None else parse_zone(args.timezone)
     source = None if args.source_timezone is None else parse_zone(args.source_timezone)
     shift = timedelta(0) if args.shift is None else parse_duration(args.shift)
     if target is None and not shift and source is None and not args.gps:
@@ -132,18 +130,6 @@ def _build_request(args: argparse.Namespace) -> tuple[Correction, Selection]:
         tags=tuple(DateTag) if args.all_dates else (DateTag.ORIGINAL,),
     )
     return correction, Selection(start, end, args.camera)
-
-
-def resolve_target_zone(timezone: str, negative: bool) -> Zone:
-    zone = parse_zone(timezone)
-    if not negative:
-        return zone
-    if isinstance(zone, NamedZone):
-        raise ValueError("--negative only applies to HH:MM offsets.")
-    if timezone.strip().startswith(("+", "-")):
-        raise ValueError("Use either a signed --timezone or --negative, not both.")
-    print("Warning: --negative is deprecated; write the sign instead, e.g. --timezone=-06:00.", file=sys.stderr)
-    return zone.negated()
 
 
 def _parse_date(text: str, end_of_day: bool) -> datetime:
@@ -223,7 +209,6 @@ def _build_parser() -> argparse.ArgumentParser:
         help='New timezone: an offset such as "+02:00" or "-06:00", or an IANA name such as "Europe/Berlin" '
         "(the offset is then chosen per photo, following daylight saving time).",
     )
-    what.add_argument("-n", "--negative", action="store_true", help="Deprecated: the HH:MM --timezone is negative.")
     what.add_argument(
         "--mode",
         choices=[mode.value for mode in Mode],
